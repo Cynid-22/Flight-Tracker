@@ -159,10 +159,23 @@ export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
     });
 }
 
-export function updateFlightInfo(originCode, destCode, distanceMeters) {
+export function updateFlightInfo(origin, dest, distanceMeters) {
     flightInfoSection.classList.remove('hidden');
-    routeOriginEl.textContent = originCode;
-    routeDestEl.textContent = destCode;
+    routeOriginEl.textContent = origin.code;
+    routeDestEl.textContent = dest.code;
+
+    // Calculate Bearing and Duration
+    const duration = calculateFlightDuration(origin, dest, distanceMeters);
+    const hours = Math.floor(duration);
+    const minutes = Math.round((duration - hours) * 60);
+    const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+
+    // Update arrow with time
+    // Adding spaces and time estimate next to plane icon
+    const arrowEl = document.querySelector('.arrow');
+    if (arrowEl) {
+        arrowEl.innerHTML = `✈ <span style="font-size: 0.9em; margin-left: 8px;">${formattedTime}</span>`;
+    }
 
     // Helper to format number based on magnitude
     function formatValue(value, isSmallUnit = false) {
@@ -196,4 +209,39 @@ export function updateFlightInfo(originCode, destCode, distanceMeters) {
     const nauticalText = `${formatValue(distNM)} NM`;
 
     distanceInfoEl.textContent = `${metricText} | ${imperialText} | ${nauticalText}`;
+}
+
+/**
+ * Calculates estimation of flight duration accounting for wind belts
+ * @returns {number} Duration in hours
+ */
+function calculateFlightDuration(origin, dest, distanceMeters) {
+    const toRad = (d) => d * Math.PI / 180;
+    const lat1 = toRad(origin.lat);
+    const lat2 = toRad(dest.lat);
+    const dLon = toRad(dest.lon - origin.lon);
+
+    // Calculate Bearing (Initial Bearing)
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) -
+        Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+    // Base Speed (Typical commercial jet cruising speed)
+    const baseSpeedKmh = 900;
+
+    // Wind Effect (Westerlies in mid-latitudes)
+    // Cosine of (Bearing - 90 deg) gives 1 for East, -1 for West
+    // We assume a net wind component of ~100 km/h
+    // This is a simplified model of the Jet Stream effect
+    const windComponent = Math.cos((bearing - 90) * Math.PI / 180) * 100;
+
+    const effectiveSpeed = baseSpeedKmh + windComponent;
+
+    // Calculate raw flight time
+    const distanceKm = distanceMeters / 1000;
+    const flightHours = distanceKm / effectiveSpeed;
+
+    // Add 30 mins (0.5h) for taxi, takeoff, approach, landing
+    return flightHours + 0.5;
 }

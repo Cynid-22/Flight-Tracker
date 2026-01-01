@@ -73,7 +73,7 @@ function handleTrackFlight() {
 
     // Update UI
     if (distanceMeters) {
-        updateFlightInfo(originAirport.code, destAirport.code, distanceMeters);
+        updateFlightInfo(originAirport, destAirport, distanceMeters);
     }
 }
 
