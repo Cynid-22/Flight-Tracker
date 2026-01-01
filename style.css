@@ -48,6 +48,10 @@ body {
     gap: 15px;
     pointer-events: none;
     /* Let clicks pass through around cards */
+    max-height: calc(100vh - 40px);
+    max-height: calc(100vh - 40px);
+    overflow: hidden;
+    /* Prevent sidebar scroll, force internal scroll */
 }
 
 .header {
@@ -82,6 +86,10 @@ body {
     border-radius: 16px;
     box-shadow: var(--shadow);
     transition: opacity 0.3s ease, transform 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    /* Default cards don't shrink */
 }
 
 .card.hidden {
@@ -162,8 +170,12 @@ button:hover {
 
 #layovers-container,
 #flight-legs-container {
-    max-height: 220px;
-    /* Approx height for 3 items */
+    flex: 1 1 auto;
+    /* Grow and shrink */
+    min-height: 35px;
+    /* Minimum visible area */
+    max-height: none;
+    /* No artificial cap */
     overflow-y: auto;
     /* Custom Scrollbar for Webkit */
     scrollbar-width: thin;
@@ -181,12 +193,22 @@ button:hover {
     border-radius: 3px;
 }
 
+#layovers-container:empty {
+    min-height: 0;
+    flex-grow: 0;
+    margin: 0;
+    padding: 0;
+    display: none;
+    /* Hide completely when empty */
+}
+
 .secondary-btn {
     background-color: transparent;
     border: none;
     box-shadow: none;
     box-shadow: none;
-    margin-top: -5px;
+    margin-top: 5px;
+    /* Removed negative margin */
     margin-bottom: 5px;
     font-size: 0.8rem;
     padding: 5px;
@@ -217,11 +239,17 @@ button:hover {
 #search-section {
     z-index: 20;
     position: relative;
+    flex-shrink: 1;
+    /* Allow shrinking */
+    min-height: 0;
 }
 
 #flight-info {
     z-index: 10;
     position: relative;
+    flex-shrink: 1;
+    /* Allow shrinking */
+    min-height: 0;
 }
 
 .suggestions {
@@ -236,6 +264,19 @@ button:hover {
     /* Ensure on top of everything */
     display: none;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+
+    /* Custom Scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.suggestions::-webkit-scrollbar {
+    width: 6px;
+}
+
+.suggestions::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
 }
 
 .suggestions.active {

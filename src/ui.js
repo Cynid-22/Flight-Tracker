@@ -126,8 +126,12 @@ export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
     });
 
     // Hide suggestions on scroll (body or containers) to prevent floating ghosts
-    document.addEventListener('scroll', () => {
+    document.addEventListener('scroll', (e) => {
         if (suggestionBox.classList.contains('active')) {
+            // Check if scroll event is coming from the suggestion box itself
+            if (e.target === suggestionBox || suggestionBox.contains(e.target)) {
+                return; // Allow internal scrolling
+            }
             suggestionBox.classList.remove('active');
             input.blur(); // Also blur to fully reset state
         }
@@ -299,8 +303,6 @@ export function updateFlightInfo(routeAirports, totalDistanceMeters) {
     // Per Leg Stats
     const legsContainer = document.createElement('div');
     legsContainer.id = 'flight-legs-container';
-    legsContainer.style.maxHeight = '200px';
-    legsContainer.style.overflowY = 'auto';
 
     for (let i = 0; i < routeAirports.length - 1; i++) {
         const origin = routeAirports[i];

@@ -154,6 +154,24 @@ export function drawPath(routeAirports) {
     // Add airport markers
     routeAirports.forEach(airport => {
         const pos = { lat: airport.lat, lng: airport.lon };
+
+        // 1. Draw the white dot marker
+        const dotMarker = new google.maps.Marker({
+            position: pos,
+            map: map,
+            icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 5,
+                fillColor: "#FFFFFF",
+                fillOpacity: 1,
+                strokeColor: "#000000",
+                strokeWeight: 1
+            },
+            zIndex: 3 // Above lines
+        });
+        markers.push(dotMarker);
+
+        // 2. Add the label InfoWindow
         const infoWindow = new google.maps.InfoWindow({
             content: createLabelContent(airport),
             position: pos,
