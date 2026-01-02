@@ -1,0 +1,141 @@
+/**
+ * Layover Styles
+ * Layover container, drag handles, stops, and collapsed view
+ */
+
+#layovers-container,
+#flight-legs-container {
+    flex: 1 1 auto;
+    min-height: 35px;
+    max-height: none;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+#layovers-container::-webkit-scrollbar,
+#flight-legs-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+#layovers-container::-webkit-scrollbar-thumb,
+#flight-legs-container::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+}
+
+#layovers-container:empty {
+    min-height: 0;
+    flex-grow: 0;
+    margin: 0;
+    padding: 0;
+    display: none;
+}
+
+#layovers-container {
+    overflow: visible;
+}
+
+.input-group {
+    position: relative;
+    margin-bottom: 0;
+    transition: z-index 0.1s;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    z-index: 1;
+    background: transparent;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.input-group.dragging {
+    transform: scale(1.03);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    opacity: 0.9;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 8px;
+}
+
+.input-group.drag-over {
+    transform: scale(0.98);
+    opacity: 0.7;
+}
+
+.input-group:focus-within {
+    z-index: 50;
+}
+
+.drag-handle {
+    color: var(--text-muted);
+    cursor: grab;
+    font-size: 1.2rem;
+    user-select: none;
+    padding: 8px 2px 8px 17px;
+    margin-left: -5px;
+    z-index: 1;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+    color: white;
+}
+
+#stops-container {
+    position: relative;
+    padding-left: 0;
+    margin-left: -3px;
+}
+
+/* Vertical connecting line */
+#stops-container::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 20px;
+    bottom: 20px;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 1px;
+    z-index: 0;
+}
+
+/* Collapsed stops view */
+#collapsed-stops {
+    padding: 0px 0 0px 7px;
+}
+
+.collapsed-stop-item {
+    padding: 2px 0 2px 30px;
+    margin-left: 15px;
+    border-left: 2px solid rgba(255, 255, 255, 0.15);
+}
+
+.collapsed-stop-text {
+    font-size: 0.75em;
+    color: var(--text-muted);
+}
+
+.collapsed-endpoint {
+    padding: 6px 0;
+    font-size: 1em;
+    font-weight: 600;
+    color: white;
+    cursor: pointer;
+}
+
+.collapsed-endpoint:hover {
+    color: var(--primary);
+}
+
+/* Hide center line when collapsed */
+#stops-container.collapsed::before {
+    display: none;
+}
+
+#stops-container.collapsed {
+    height: auto;
+    min-height: auto;
+}

@@ -1,0 +1,15 @@
+/**
+ * CSS Variables
+ * Design tokens and theme colors
+ */
+
+:root {
+    --primary-color: #3b82f6;
+    --primary-hover: #2563eb;
+    --glass-bg: rgba(0, 0, 0, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.3);
+    --text-color: #ffffff;
+    --text-muted: #cbd5e1;
+    --input-bg: rgba(0, 0, 0, 0.5);
+    --shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+}

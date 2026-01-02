@@ -49,7 +49,6 @@ function parseCSV(csvText) {
 }
 
 // Helper to parse a CSV line handling quotes
-// Helper to parse a CSV line handling quotes
 function parseCSVLine(text) {
     const result = [];
     let start = 0;

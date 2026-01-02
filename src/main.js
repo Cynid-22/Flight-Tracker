@@ -5,8 +5,6 @@ import { setupAutocomplete, enableSearch, updateFlightInfo, setupLayoverControls
 
 // State
 let airports = [];
-let originAirport = null;
-let destAirport = null;
 
 // DOM
 const originInput = document.getElementById('origin-input');

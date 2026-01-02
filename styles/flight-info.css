@@ -1,0 +1,24 @@
+/**
+ * Flight Info Styles
+ * Route info and distance display
+ */
+
+.route-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.arrow {
+    color: white;
+    font-size: 1.2rem;
+}
+
+#distance-info {
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
