@@ -1,7 +1,7 @@
 
 import { loadAirports } from './data.js';
 import { loadGoogleMapsScript, initMap, drawPath } from './map.js';
-import { setupAutocomplete, enableSearch, updateFlightInfo, setupLayoverControls, getLayovers, showNotification, findBestMatch } from './ui.js';
+import { setupAutocomplete, enableSearch, updateFlightInfo, setupLayoverControls, getLayovers, showNotification, findBestMatch, setupDragItems, collapseStops, canAddMoreStops } from './ui.js';
 
 // State
 let airports = [];
@@ -16,8 +16,8 @@ const destSuggestions = document.getElementById('dest-suggestions');
 const trackBtn = document.getElementById('track-btn');
 
 // Clear state on input (prevents stale selection bug)
-originInput.addEventListener('input', () => { originAirport = null; });
-destInput.addEventListener('input', () => { destAirport = null; });
+originInput.addEventListener('input', () => { delete originInput.dataset.airport; });
+destInput.addEventListener('input', () => { delete destInput.dataset.airport; });
 
 async function main() {
     // 1. Load Data
@@ -26,12 +26,12 @@ async function main() {
 
     // 2. Setup UI
     setupAutocomplete(originInput, originSuggestions, airports, (selected) => {
-        originAirport = selected;
+        originInput.dataset.airport = JSON.stringify(selected);
         console.log("Origin set:", selected.code);
     });
 
     setupAutocomplete(destInput, destSuggestions, airports, (selected) => {
-        destAirport = selected;
+        destInput.dataset.airport = JSON.stringify(selected);
         console.log("Destination set:", selected.code);
     });
 
@@ -40,6 +40,9 @@ async function main() {
         // Optional: Auto-update if tracking is already active? 
         // For now, we wait for user to click Track
     });
+
+    // Initialize DnD for initial items (Origin/Dest)
+    setupDragItems();
 
     // 3. Setup Map (API Key from environment)
     const envKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -66,12 +69,21 @@ async function initializeMap(key) {
 }
 
 function handleTrackFlight() {
-    // Smart Match Origin
-    if (!originAirport && originInput.value.trim().length > 0) {
+    let originAirport = null;
+    let destAirport = null;
+
+    // Resolve Origin
+    if (originInput.dataset.airport) {
+        try {
+            originAirport = JSON.parse(originInput.dataset.airport);
+        } catch (e) { console.error(e); }
+    } else if (originInput.value.trim().length > 0) {
+        // Smart Match Origin
         const match = findBestMatch(originInput.value.trim(), airports);
         if (match) {
             originAirport = match;
             originInput.value = `${match.code} - ${match.city || match.name}`;
+            originInput.dataset.airport = JSON.stringify(match);
             showNotification(`Auto-selected Origin: ${match.code}`, 'info');
         } else {
             showNotification(`Unknown Origin: '${originInput.value}'`, 'error');
@@ -79,12 +91,18 @@ function handleTrackFlight() {
         }
     }
 
-    // Smart Match Destination
-    if (!destAirport && destInput.value.trim().length > 0) {
+    // Resolve Destination
+    if (destInput.dataset.airport) {
+        try {
+            destAirport = JSON.parse(destInput.dataset.airport);
+        } catch (e) { console.error(e); }
+    } else if (destInput.value.trim().length > 0) {
+        // Smart Match Destination
         const match = findBestMatch(destInput.value.trim(), airports);
         if (match) {
             destAirport = match;
             destInput.value = `${match.code} - ${match.city || match.name}`;
+            destInput.dataset.airport = JSON.stringify(match);
             showNotification(`Auto-selected Destination: ${match.code}`, 'info');
         } else {
             showNotification(`Unknown Destination: '${destInput.value}'`, 'error');
@@ -131,6 +149,9 @@ function handleTrackFlight() {
     if (totalDistanceMeters !== undefined) {
         updateFlightInfo(routeAirports, totalDistanceMeters);
     }
+
+    // Collapse stops to text-only view
+    collapseStops();
 }
 
 // Start

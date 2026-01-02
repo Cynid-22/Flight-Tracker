@@ -215,6 +215,11 @@ export function setupLayoverControls(airports, onUpdate) {
     const addBtn = document.getElementById('add-layover-btn');
 
     addBtn.addEventListener('click', () => {
+        if (!canAddMoreStops()) {
+            showNotification('Maximum 10 stops allowed (including origin and destination).', 'error');
+            return;
+        }
+
         const id = Date.now();
         const group = document.createElement('div');
         group.className = 'input-group layover-group';
@@ -222,14 +227,12 @@ export function setupLayoverControls(airports, onUpdate) {
         group.style.position = 'relative';
 
         group.innerHTML = `
-            <label>Layover</label>
-            <div style="display: flex; gap: 5px;">
-                <div style="position: relative; flex-grow: 1;">
-                    <input type="text" placeholder="City or Code" autocomplete="off" class="layover-input">
-                    <div class="suggestions"></div>
-                </div>
+            <span class="drag-handle">⠿</span>
+            <div style="display: flex; gap: 5px; flex-grow: 1;">
+                <input type="text" placeholder="Stop (e.g. CDG)" autocomplete="off" class="layover-input" style="flex-grow: 1;">
                 <button class="remove-layover-btn">×</button>
             </div>
+            <div class="suggestions"></div>
         `;
 
         // Clear dataset on input so we don't use stale selected data if user changes text
@@ -248,16 +251,297 @@ export function setupLayoverControls(airports, onUpdate) {
                 document.body.removeChild(suggestions);
             }
             onUpdate();
+            updateAddButtonState();
         });
 
         const input = group.querySelector('input');
         const suggestions = group.querySelector('.suggestions');
 
         setupAutocomplete(input, suggestions, airports, (selected) => {
+            // Store selected airport on the input element
             input.dataset.airport = JSON.stringify(selected);
-            onUpdate();
+            onUpdate(); // Trigger update to redraw path
+        });
+
+        // Enable DnD for this new item
+        setupDragItems();
+
+        // Update button state
+        updateAddButtonState();
+    });
+}
+
+const MAX_TOTAL_STOPS = 10; // Including origin and destination
+
+export function canAddMoreStops() {
+    const container = document.getElementById('layovers-container');
+    const layoverCount = container.querySelectorAll('.layover-group').length;
+    return (layoverCount + 2) < MAX_TOTAL_STOPS;
+}
+
+export function updateAddButtonState() {
+    const addBtn = document.getElementById('add-layover-btn');
+    if (!canAddMoreStops()) {
+        addBtn.disabled = true;
+        addBtn.style.opacity = '0.4';
+        addBtn.style.cursor = 'not-allowed';
+    } else {
+        addBtn.disabled = false;
+        addBtn.style.opacity = '';
+        addBtn.style.cursor = '';
+    }
+}
+
+export function collapseStops() {
+    const container = document.getElementById('layovers-container');
+    const stopsContainer = document.getElementById('stops-container');
+    const layoverGroups = container.querySelectorAll('.layover-group');
+    const originGroup = document.querySelector('[data-type="origin"]');
+    const destGroup = document.querySelector('[data-type="dest"]');
+    const originInput = document.getElementById('origin-input');
+    const destInput = document.getElementById('dest-input');
+
+    // Hide all input groups and center line
+    stopsContainer.classList.add('collapsed');
+    originGroup.style.display = 'none';
+    destGroup.style.display = 'none';
+    container.style.display = 'none';
+
+    // Create collapsed view
+    let collapsed = document.getElementById('collapsed-stops');
+    if (!collapsed) {
+        collapsed = document.createElement('div');
+        collapsed.id = 'collapsed-stops';
+        originGroup.parentNode.insertBefore(collapsed, originGroup.nextSibling);
+    }
+
+    collapsed.innerHTML = '';
+
+    // Helper to get country code from dataset
+    function getCountryCode(input) {
+        if (input.dataset.airport) {
+            try {
+                const airport = JSON.parse(input.dataset.airport);
+                return airport.country ? airport.country.slice(0, 2).toUpperCase() : '';
+            } catch (e) { }
+        }
+        return '';
+    }
+
+    // Origin text with country
+    const originCountry = getCountryCode(originInput);
+    const originText = document.createElement('div');
+    originText.className = 'collapsed-endpoint';
+    originText.textContent = (originInput.value || 'Origin') + (originCountry ? ` (${originCountry})` : '');
+    collapsed.appendChild(originText);
+
+    // Layover texts with truncation
+    const MAX_VISIBLE_STOPS = 5;
+    const layoverArray = Array.from(layoverGroups);
+    const totalLayovers = layoverArray.length;
+
+    if (totalLayovers <= MAX_VISIBLE_STOPS) {
+        // Show all
+        layoverArray.forEach((group) => {
+            const input = group.querySelector('input');
+            const country = getCountryCode(input);
+            let displayText = (input.value || 'Stop') + (country ? ` (${country})` : '');
+
+            const stopText = document.createElement('div');
+            stopText.className = 'collapsed-stop-item';
+            stopText.innerHTML = `<span class="collapsed-stop-text">${displayText}</span>`;
+            collapsed.appendChild(stopText);
+        });
+    } else {
+        // Truncate: show first 2, then ..., then last 2
+        for (let i = 0; i < 2; i++) {
+            const input = layoverArray[i].querySelector('input');
+            const country = getCountryCode(input);
+            let displayText = (input.value || 'Stop') + (country ? ` (${country})` : '');
+
+            const stopText = document.createElement('div');
+            stopText.className = 'collapsed-stop-item';
+            stopText.innerHTML = `<span class="collapsed-stop-text">${displayText}</span>`;
+            collapsed.appendChild(stopText);
+        }
+
+        // Truncation indicator
+        const truncatedCount = totalLayovers - 4;
+        const truncText = document.createElement('div');
+        truncText.className = 'collapsed-stop-item';
+        truncText.innerHTML = `<span class="collapsed-stop-text" style="font-style: italic;">... ${truncatedCount} Stop${truncatedCount > 1 ? 's' : ''} Truncated</span>`;
+        collapsed.appendChild(truncText);
+
+        // Last 2
+        for (let i = totalLayovers - 2; i < totalLayovers; i++) {
+            const input = layoverArray[i].querySelector('input');
+            const country = getCountryCode(input);
+            let displayText = (input.value || 'Stop') + (country ? ` (${country})` : '');
+
+            const stopText = document.createElement('div');
+            stopText.className = 'collapsed-stop-item';
+            stopText.innerHTML = `<span class="collapsed-stop-text">${displayText}</span>`;
+            collapsed.appendChild(stopText);
+        }
+    }
+
+    // Destination text with country
+    const destCountry = getCountryCode(destInput);
+    const destText = document.createElement('div');
+    destText.className = 'collapsed-endpoint';
+    destText.textContent = (destInput.value || 'Destination') + (destCountry ? ` (${destCountry})` : '');
+    collapsed.appendChild(destText);
+
+    collapsed.addEventListener('click', expandStops);
+
+    // Hide buttons and show edit hint
+    const addBtn = document.getElementById('add-layover-btn');
+    const trackBtn = document.getElementById('track-btn');
+    addBtn.style.display = 'none';
+    trackBtn.style.display = 'none';
+
+    // Add edit hint inside collapsed div
+    const editHint = document.createElement('div');
+    editHint.id = 'edit-hint';
+    editHint.textContent = 'Click anywhere to edit';
+    editHint.style.textAlign = 'center';
+    editHint.style.color = 'var(--text-muted)';
+    editHint.style.fontSize = '0.8em';
+    editHint.style.padding = '5px 0';
+    editHint.style.cursor = 'pointer';
+    editHint.style.opacity = '0.4';
+    editHint.addEventListener('click', expandStops);
+    collapsed.appendChild(editHint);
+}
+
+export function expandStops() {
+    const container = document.getElementById('layovers-container');
+    const stopsContainer = document.getElementById('stops-container');
+    const collapsed = document.getElementById('collapsed-stops');
+    const flightInfo = document.getElementById('flight-info');
+    const originGroup = document.querySelector('[data-type="origin"]');
+    const destGroup = document.querySelector('[data-type="dest"]');
+
+    // Show inputs again and center line
+    stopsContainer.classList.remove('collapsed');
+    originGroup.style.display = '';
+    destGroup.style.display = '';
+    container.style.display = '';
+
+    if (collapsed) {
+        collapsed.remove();
+    }
+
+    // Remove edit hint
+    const editHint = document.getElementById('edit-hint');
+    if (editHint) {
+        editHint.remove();
+    }
+
+    // Show buttons again
+    const addBtn = document.getElementById('add-layover-btn');
+    const trackBtn = document.getElementById('track-btn');
+    addBtn.style.display = '';
+    trackBtn.style.display = '';
+
+    if (flightInfo) {
+        flightInfo.classList.add('hidden');
+    }
+}
+
+// Helper to re-attach drag events
+export function setupDragItems() {
+    const draggables = document.querySelectorAll('.input-group');
+
+    draggables.forEach(group => {
+        // Skip if already set up
+        if (group.dataset.dragSetup === 'true') return;
+        group.dataset.dragSetup = 'true';
+
+        const handle = group.querySelector('.drag-handle');
+        if (!handle) return;
+
+        // Make the handle the drag initiator
+        handle.addEventListener('mousedown', () => {
+            group.setAttribute('draggable', 'true');
+        });
+
+        group.addEventListener('dragstart', (e) => {
+            group.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', ''); // Required for Firefox
+        });
+
+        group.addEventListener('dragend', () => {
+            group.classList.remove('dragging');
+            group.removeAttribute('draggable');
+            // Clean up any lingering drag-over states
+            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        });
+
+        // Allow drops
+        group.addEventListener('dragover', (e) => {
+            e.preventDefault(); // Necessary to allow dropping
+            e.dataTransfer.dropEffect = 'move';
+            // Add drag-over class here for more reliable detection
+            if (!group.classList.contains('dragging')) {
+                group.classList.add('drag-over');
+            }
+        });
+
+        group.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+        });
+
+        group.addEventListener('dragleave', (e) => {
+            // Only remove if leaving to a non-child element
+            if (!group.contains(e.relatedTarget)) {
+                group.classList.remove('drag-over');
+            }
+        });
+
+        group.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            group.classList.remove('drag-over');
+            const sourceGroup = document.querySelector('.dragging');
+            if (sourceGroup && sourceGroup !== group) {
+                swapInputs(sourceGroup, group);
+            }
         });
     });
+}
+
+function swapInputs(groupA, groupB) {
+    const inputA = groupA.querySelector('input');
+    const inputB = groupB.querySelector('input');
+
+    // Swap values
+    const tempVal = inputA.value;
+    inputA.value = inputB.value;
+    inputB.value = tempVal;
+
+    // Swap datasets (the actual airport objects)
+    const tempDataset = inputA.dataset.airport;
+    if (inputB.dataset.airport) {
+        inputA.dataset.airport = inputB.dataset.airport;
+    } else {
+        delete inputA.dataset.airport;
+    }
+
+    if (tempDataset) {
+        inputB.dataset.airport = tempDataset;
+    } else {
+        delete inputB.dataset.airport;
+    }
+
+    // Optional: Visual feedback
+    groupA.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    groupB.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    setTimeout(() => {
+        groupA.style.backgroundColor = '';
+        groupB.style.backgroundColor = '';
+    }, 300);
 }
 
 export function getLayovers(airports) { // Now needs airports list for smart matching
@@ -357,14 +641,16 @@ export function updateFlightInfo(routeAirports, totalDistanceMeters) {
         legDiv.style.borderRadius = '8px';
 
         legDiv.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <span style="font-weight: 600;">${origin.code}</span>
-                <span class="arrow" style="font-size: 0.8em; color: white;">✈</span>
-                <span style="font-weight: 600;">${dest.code}</span>
+            <div style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 4px;">
+                <span style="font-weight: 600; text-align: left;">${origin.code}</span>
+                <span style="text-align: center; white-space: nowrap;">
+                    <span style="color: var(--text-muted); font-size: 0.85em;">${legTimeStr}</span>
+                    <span class="arrow" style="font-size: 0.9em; color: white; margin: 0 4px;">✈</span>
+                </span>
+                <span style="font-weight: 600; text-align: right;">${dest.code}</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: var(--text-muted);">
-                <span>${formatDistance(distMeters).metric}</span>
-                <span>${legTimeStr}</span>
+            <div style="text-align: center; font-size: 0.8em; color: var(--text-muted);">
+                ${formatDistance(distMeters).metric} | ${formatDistance(distMeters).imperial} | ${formatDistance(distMeters).nautical}
             </div>
         `;
         legsContainer.appendChild(legDiv);
