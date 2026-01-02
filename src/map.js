@@ -37,10 +37,13 @@ export function initMap(container) {
     map = new google.maps.Map(container, {
         center: { lat: 30, lng: -40 },
         zoom: 3,
-        minZoom: 2, // Prevent zooming out too far
+        minZoom: 1.5, // Prevent zooming out too far
         mapId: "DEMO_MAP_ID",
+        renderingType: "VECTOR",
         mapTypeId: google.maps.MapTypeId.SATELLITE,
-        tilt: 45,
+        backgroundColor: "#000000",
+        isFractionalZoomEnabled: true,
+        tilt: 0,
         disableDefaultUI: true,
         rotateControl: true,
         zoomControl: true,
@@ -317,9 +320,9 @@ function animateCamera(bounds) {
     const latDiff = Math.abs(ne.lat() - sw.lat());
     const roughDistance = Math.sqrt(lngDiff * lngDiff + latDiff * latDiff);
 
-    // Use smaller padding for larger bounds (zoom in more generally)
-    const basePadding = roughDistance > 60 ? 40 : 80;
-    const leftPadding = roughDistance > 60 ? 350 : 400;
+    // Use larger padding to ensure zoom out
+    const basePadding = roughDistance > 60 ? 130 : 80;
+    const leftPadding = roughDistance > 60 ? 550 : 400;
 
     // Get target state from fitBounds by applying it and capturing result
     map.fitBounds(bounds, {
@@ -329,9 +332,9 @@ function animateCamera(bounds) {
         left: leftPadding
     });
 
-    // Ensure minimum zoom level of 2 (don't zoom out too far)
-    if (map.getZoom() < 2) {
-        map.setZoom(2);
+    // Ensure minimum zoom level of 1.5 (allow zooming out more for global routes)
+    if (map.getZoom() < 1.5) {
+        map.setZoom(1.5);
     }
 
     // Capture the target state that fitBounds calculated
