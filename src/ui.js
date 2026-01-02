@@ -11,10 +11,67 @@ export function enableSearch() {
     searchSection.classList.remove('disabled');
 }
 
+export function showNotification(message, type = 'info') {
+    const container = document.getElementById('notification-container');
+    const toast = document.createElement('div');
+    toast.className = `notification-toast ${type}`;
+
+    // Choose icon/symbol based on type
+    let icon = 'ℹ️';
+    if (type === 'error') icon = '⚠️';
+    if (type === 'success') icon = '✅';
+
+    toast.innerHTML = `<span style="font-size: 1.2em;">${icon}</span><span>${message}</span>`;
+
+    container.appendChild(toast);
+
+    // Auto remove after animation (3s total: 0.3s in + 2.4s wait + 0.3s out)
+    setTimeout(() => {
+        if (container.contains(toast)) {
+            container.removeChild(toast);
+        }
+    }, 3000);
+}
+
+export function findBestMatch(query, airports) {
+    if (!query || query.length < 2) return null;
+    query = query.toLowerCase();
+
+    const matches = airports.filter(a =>
+        a.code.toLowerCase().startsWith(query) ||
+        (a.city && a.city.toLowerCase().includes(query)) ||
+        a.name.toLowerCase().includes(query)
+    );
+
+    if (matches.length === 0) return null;
+
+    matches.sort((a, b) => {
+        const codeA = a.code.toLowerCase();
+        const codeB = b.code.toLowerCase();
+
+        // Exact code match gets highest priority
+        if (codeA === query && codeB !== query) return -1;
+        if (codeB === query && codeA !== query) return 1;
+
+        // Starts with code gets second priority
+        const startsA = codeA.startsWith(query);
+        const startsB = codeB.startsWith(query);
+        if (startsA && !startsB) return -1;
+        if (!startsA && startsB) return 1;
+
+        // Prioritize large_airport over medium_airport
+        if (a.type === 'large_airport' && b.type !== 'large_airport') return -1;
+        if (b.type === 'large_airport' && a.type !== 'large_airport') return 1;
+
+        return 0;
+    });
+
+    return matches[0];
+}
+
 export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
     if (!input || !suggestionBox) return;
 
-    // Store current matches and highlighted index
     let currentMatches = [];
     let highlightedIndex = -1;
 
@@ -30,7 +87,6 @@ export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
         items.forEach((item, index) => {
             if (index === highlightedIndex) {
                 item.classList.add('highlighted');
-                // Scroll into view if needed
                 item.scrollIntoView({ block: 'nearest' });
             } else {
                 item.classList.remove('highlighted');
@@ -49,75 +105,53 @@ export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
             return;
         }
 
+        // Reuse logic? Valid approach is to just duplicate filter for now to keep autocomplete showing multiple
+        // We can't strictly use findBestMatch because we need ALL matches for the UI list
         let matches = airports.filter(a =>
             a.code.toLowerCase().startsWith(query) ||
             (a.city && a.city.toLowerCase().includes(query)) ||
             a.name.toLowerCase().includes(query)
         );
 
-        // Sort matches to prioritize IATA codes
         matches.sort((a, b) => {
             const codeA = a.code.toLowerCase();
             const codeB = b.code.toLowerCase();
-
-            // Exact code match gets highest priority
             if (codeA === query && codeB !== query) return -1;
             if (codeB === query && codeA !== query) return 1;
-
-            // Starts with code gets second priority
             const startsA = codeA.startsWith(query);
             const startsB = codeB.startsWith(query);
             if (startsA && !startsB) return -1;
             if (!startsA && startsB) return 1;
-
-            // Prioritize large_airport over medium_airport
             if (a.type === 'large_airport' && b.type !== 'large_airport') return -1;
             if (b.type === 'large_airport' && a.type !== 'large_airport') return 1;
-
-            // Prioritize medium_airport over small_airport
-            if (a.type === 'medium_airport' && b.type !== 'medium_airport') return -1;
-            if (b.type === 'medium_airport' && a.type !== 'medium_airport') return 1;
-
-            return 0; // Default order
+            return 0;
         });
 
         currentMatches = matches.slice(0, 10);
 
         if (currentMatches.length > 0) {
-            // Portal: Move to body to avoid stacking context issues (backdrop-filter)
             if (suggestionBox.parentNode !== document.body) {
                 document.body.appendChild(suggestionBox);
             }
-
             suggestionBox.classList.add('active');
-
-            // Float the suggestions box using fixed positioning
             const rect = input.getBoundingClientRect();
             suggestionBox.style.position = 'fixed';
             suggestionBox.style.top = `${rect.bottom + 5}px`;
             suggestionBox.style.left = `${rect.left}px`;
             suggestionBox.style.width = `${rect.width}px`;
 
-            // Re-calculate on scroll or resize to keep it attached
-            // (Simple version: just hide on scroll/resize to avoid complexity/lag)
-
             currentMatches.forEach((airport, index) => {
                 const div = document.createElement('div');
                 div.className = 'suggestion-item';
                 div.innerHTML = `<span class="highlight">${airport.code}</span> - ${airport.name} (${airport.city || 'N/A'}, ${airport.country})`;
-
-                // Use mousedown instead of click to fire before blur
                 div.addEventListener('mousedown', (e) => {
-                    e.preventDefault(); // Prevent blur
+                    e.preventDefault();
                     selectAirport(airport);
                 });
-
-                // Highlight on hover
                 div.addEventListener('mouseenter', () => {
                     highlightedIndex = index;
                     updateHighlight();
                 });
-
                 suggestionBox.appendChild(div);
             });
         } else {
@@ -125,19 +159,14 @@ export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
         }
     });
 
-    // Hide suggestions on scroll (body or containers) to prevent floating ghosts
     document.addEventListener('scroll', (e) => {
         if (suggestionBox.classList.contains('active')) {
-            // Check if scroll event is coming from the suggestion box itself
-            if (e.target === suggestionBox || suggestionBox.contains(e.target)) {
-                return; // Allow internal scrolling
-            }
+            if (e.target === suggestionBox || suggestionBox.contains(e.target)) return;
             suggestionBox.classList.remove('active');
-            input.blur(); // Also blur to fully reset state
+            input.blur();
         }
-    }, true); // Capture phase to catch all scrolls
+    }, true);
 
-    // Handle keyboard navigation
     input.addEventListener('keydown', (e) => {
         if (!suggestionBox.classList.contains('active') || currentMatches.length === 0) return;
 
@@ -150,12 +179,10 @@ export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
             highlightedIndex = highlightedIndex <= 0 ? currentMatches.length - 1 : highlightedIndex - 1;
             updateHighlight();
         } else if (e.key === 'Enter') {
-            e.preventDefault(); // Stop form submit
-            // Select highlighted or first if none highlighted
+            e.preventDefault();
             const indexToSelect = highlightedIndex >= 0 ? highlightedIndex : 0;
             selectAirport(currentMatches[indexToSelect]);
         } else if (e.key === 'Tab') {
-            // Do NOT prevent default - let it move to next field
             const indexToSelect = highlightedIndex >= 0 ? highlightedIndex : 0;
             selectAirport(currentMatches[indexToSelect]);
         } else if (e.key === 'Escape') {
@@ -164,21 +191,17 @@ export function setupAutocomplete(input, suggestionBox, airports, onSelect) {
         }
     });
 
-    // Select all text on click to allow easy overwrite
     input.addEventListener('click', () => {
         input.select();
     });
 
-    // Close suggestions on blur (focus lost)
     input.addEventListener('blur', () => {
-        // Delay slightly to check if we just clicked an item
         setTimeout(() => {
             suggestionBox.classList.remove('active');
             highlightedIndex = -1;
         }, 100);
     });
 
-    // Close suggestions when clicking outside (fallback)
     document.addEventListener('click', (e) => {
         if (!input.contains(e.target) && !suggestionBox.contains(e.target)) {
             suggestionBox.classList.remove('active');
@@ -209,49 +232,58 @@ export function setupLayoverControls(airports, onUpdate) {
             </div>
         `;
 
-        container.appendChild(group);
+        // Clear dataset on input so we don't use stale selected data if user changes text
+        const inputEl = group.querySelector('input');
+        inputEl.addEventListener('input', () => {
+            delete inputEl.dataset.airport;
+        });
 
-        // Auto-scroll to bottom
+        container.appendChild(group);
         container.scrollTop = container.scrollHeight;
 
-        // Setup removal
         group.querySelector('.remove-layover-btn').addEventListener('click', () => {
             container.removeChild(group);
-
-            // Cleanup detached suggestion box if it exists in body
             const suggestions = group.querySelector('.suggestions');
             if (suggestions && suggestions.parentNode === document.body) {
                 document.body.removeChild(suggestions);
             }
-
-            onUpdate(); // Trigger update to redraw path
+            onUpdate();
         });
 
-        // Setup autocomplete
         const input = group.querySelector('input');
         const suggestions = group.querySelector('.suggestions');
 
         setupAutocomplete(input, suggestions, airports, (selected) => {
-            // Store selected airport on the input element
             input.dataset.airport = JSON.stringify(selected);
-            console.log("Layover set:", selected.code);
-            onUpdate(); // Trigger update to redraw path
+            onUpdate();
         });
     });
 }
 
-export function getLayovers() {
+export function getLayovers(airports) { // Now needs airports list for smart matching
     const inputs = document.querySelectorAll('.layover-input');
     const layovers = [];
-    inputs.forEach(input => {
+
+    for (const input of inputs) {
         if (input.dataset.airport) {
             try {
                 layovers.push(JSON.parse(input.dataset.airport));
             } catch (e) {
                 console.error("Failed to parse airport data", e);
             }
+        } else if (input.value.trim().length > 0) {
+            // Smart Match
+            const match = findBestMatch(input.value.trim(), airports);
+            if (match) {
+                input.value = `${match.code} - ${match.city || match.name}`;
+                input.dataset.airport = JSON.stringify(match); // Save it
+                layovers.push(match);
+                showNotification(`Auto-selected layover: ${match.code}`, 'info');
+            } else {
+                throw new Error(`Layover '${input.value}' matches no known airport.`);
+            }
         }
-    });
+    }
     return layovers;
 }
 
