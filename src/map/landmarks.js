@@ -1,45 +1,52 @@
 /**
  * Landmark Map Module
- * Renders landmarks on map with tier-based visibility
+ * Renders landmarks on map with tier-based visibility and viewport virtualization
  */
 
 import { getMap } from './core.js';
 import { TIER_RADIUS_KM } from '../data/landmarks.js';
 import { createBoundingBox, isWithinBoundingBox, getDistanceFromPath } from '../utils/geo.js';
 
-// Track all landmark markers for cleanup
-let landmarkMarkers = [];
-let landmarkInfoWindows = [];
+// State management
+let allFilteredLandmarks = []; // Data only, no markers
+let activeMarkers = new Map(); // id -> { marker, infoWindow, landmark }
 let currentOpenInfoWindow = null;
 let closeTimeout = null;
+let mapListeners = [];
 
-// Zoom level thresholds for tier visibility
-// All tiers now visible from zoom 2+ (user preference)
+// Filter State (Default Tier 3 OFF)
+const enabledTiers = new Set([1, 2]);
+
+// Configuration
+const UPDATE_DEBOUNCE_MS = 100;
+// Note: Viewport buffer logic simplified/removed for now to ensure Date Line correctness
+
+// Keep these for reference, but filtering now overrides strict zoom limits if enabled
 const ZOOM_THRESHOLDS = {
-    TIER_1_MIN: 2,    // Always visible from zoom 2+
-    TIER_2_MIN: 2,    // Now always visible
-    TIER_3_MIN: 2     // Now always visible
+    TIER_1_MIN: 2,
+    TIER_2_MIN: 2,
+    TIER_3_MIN: 2
 };
 
-// Marker styles by tier - bright colors for satellite visibility
+// Marker styles by tier
 const TIER_STYLES = {
     1: {
         scale: 8,
-        fillColor: '#FFD700',  // Gold for global icons
+        fillColor: '#FFD700',  // Gold
         strokeColor: '#000000',
         strokeWeight: 2,
         zIndex: 100
     },
     2: {
         scale: 7,
-        fillColor: '#00BFFF',  // Bright cyan for national (more visible)
+        fillColor: '#00BFFF',  // Bright cyan
         strokeColor: '#000000',
         strokeWeight: 2,
         zIndex: 50
     },
     3: {
         scale: 6,
-        fillColor: '#FF69B4',  // Hot pink for local (stands out on green/brown terrain)
+        fillColor: '#FF69B4',  // Hot pink
         strokeColor: '#000000',
         strokeWeight: 1.5,
         zIndex: 25
@@ -65,13 +72,14 @@ export function filterLandmarksInCorridor(landmarks, routeAirports) {
 
     console.log(`Bounding box pre-filter: ${preFiltered.length}/${landmarks.length} landmarks`);
 
-    // Phase 2: Corridor distance check with tier-specific radius
+    // Phase 2: Corridor distance check
     const pathPoints = routeAirports.map(a => ({ lat: a.lat, lon: a.lon }));
 
     const filtered = preFiltered.filter(lm => {
         const point = { lat: lm.lat, lon: lm.lon };
+        // Assign a unique ID if not present
+        if (!lm._id) lm._id = `${lm.lat}_${lm.lon}_${lm.name}`;
 
-        // Check distance from path
         const distanceKm = getDistanceFromPath(point, pathPoints);
         const tierRadiusKm = TIER_RADIUS_KM[lm.tier];
         return distanceKm <= tierRadiusKm;
@@ -82,24 +90,231 @@ export function filterLandmarksInCorridor(landmarks, routeAirports) {
 }
 
 /**
- * Converts a lat/lng position to screen pixel coordinates
- * @param {google.maps.Map} map
- * @param {{lat: number, lng: number}} latLng
- * @returns {{x: number, y: number}|null}
+ * Debounce utility
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+/**
+ * Initializes landmark rendering
+ * @param {Array} landmarks - Filtered landmarks to potential render
+ */
+export function renderLandmarks(landmarks) {
+    const map = getMap();
+    if (!map) return;
+
+    // Reset state but KEEP filters (don't reset enabledTiers)
+    clearLandmarkMarkers();
+    allFilteredLandmarks = landmarks;
+
+    // Show legend
+    const legend = document.getElementById('landmark-legend');
+    if (legend) legend.classList.remove('hidden');
+
+    // Initial render
+    updateVisibleMarkers();
+
+    // Setup virtualization listeners (avoid duplicates)
+    // Clear old listeners first if they exist (though clearLandmarkMarkers handles it, let's be safe)
+    if (mapListeners.length > 0) {
+        mapListeners.forEach(l => google.maps.event.removeListener(l));
+        mapListeners = [];
+    }
+
+    const debouncedUpdate = debounce(() => updateVisibleMarkers(), UPDATE_DEBOUNCE_MS);
+
+    mapListeners.push(map.addListener('idle', debouncedUpdate));
+    mapListeners.push(map.addListener('zoom_changed', debouncedUpdate));
+}
+
+/**
+ * Sets up the interactive legend and filter checkboxes
+ * Should be called once on app init
+ */
+export function setupLegend() {
+    const tier1 = document.getElementById('tier-1-check');
+    const tier2 = document.getElementById('tier-2-check');
+    const tier3 = document.getElementById('tier-3-check');
+
+    // Default state: Tier 1 & 2 ON, Tier 3 OFF
+    if (tier1) {
+        tier1.checked = true;
+        tier1.addEventListener('change', (e) => toggleTier(1, e.target.checked));
+    }
+    if (tier2) {
+        tier2.checked = true;
+        tier2.addEventListener('change', (e) => toggleTier(2, e.target.checked));
+    }
+    if (tier3) {
+        tier3.checked = false;
+        tier3.addEventListener('change', (e) => toggleTier(3, e.target.checked));
+    }
+}
+
+/**
+ * Toggles a tier on/off
+ */
+function toggleTier(tier, isEnabled) {
+    if (isEnabled) {
+        enabledTiers.add(tier);
+    } else {
+        enabledTiers.delete(tier);
+    }
+    updateVisibleMarkers();
+}
+
+/**
+ * Updates markers based on current viewport bounds and zoom level
+ */
+function updateVisibleMarkers() {
+    const map = getMap();
+    if (!map) return;
+
+    const bounds = map.getBounds();
+
+    if (!bounds) return;
+
+    // 1. Identify which landmarks should be visible
+    const visibleData = allFilteredLandmarks.filter(lm => {
+        // Filter Check: Is this tier enabled?
+        if (!enabledTiers.has(lm.tier)) return false;
+
+        // Date Line / Wrapping Check:
+        // Use Google Maps geometry for robust inclusion check instead of manual math
+        const latLng = new google.maps.LatLng(lm.lat, lm.lon);
+
+        // Strict bounds check (no buffer for now to ensure correctness across date line)
+        if (!bounds.contains(latLng)) return false;
+
+        return true;
+    });
+
+    // 2. Diff with currently active markers
+    const visibleIds = new Set(visibleData.map(lm => lm._id));
+
+    // Remove markers that are no longer visible
+    for (const [id, entry] of activeMarkers.entries()) {
+        if (!visibleIds.has(id)) {
+            entry.marker.setMap(null);
+            activeMarkers.delete(id);
+        }
+    }
+
+    // Add markers that are newly visible
+    visibleData.forEach(lm => {
+        if (!activeMarkers.has(lm._id)) {
+            createMarker(lm, map);
+        }
+    });
+}
+
+/**
+ * Creates a single marker instance
+ */
+function createMarker(landmark, map) {
+    const style = TIER_STYLES[landmark.tier];
+    const pos = { lat: landmark.lat, lng: landmark.lon };
+
+    const marker = new google.maps.Marker({
+        position: pos,
+        map: map,
+        icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: style.scale,
+            fillColor: style.fillColor,
+            fillOpacity: 0.9,
+            strokeColor: style.strokeColor,
+            strokeWeight: style.strokeWeight
+        },
+        zIndex: style.zIndex,
+        title: landmark.name
+    });
+
+    // Create info window
+    const infoWindow = createLandmarkInfoWindow(landmark);
+    const markerPos = pos;
+
+    // Add interactions
+    marker.addListener('mouseover', () => {
+        if (closeTimeout) {
+            clearTimeout(closeTimeout);
+            closeTimeout = null;
+        }
+
+        if (currentOpenInfoWindow) {
+            // If dragging from one marker to another quickly
+            if (currentOpenInfoWindow !== infoWindow) {
+                currentOpenInfoWindow.close();
+            }
+        }
+        infoWindow.open(map, marker);
+        currentOpenInfoWindow = infoWindow;
+    });
+
+    marker.addListener('mouseout', (e) => {
+        const mouseY = e.domEvent?.clientY;
+        const markerPixel = getMarkerScreenPosition(map, markerPos);
+
+        // Logic to allow moving mouse into the popup
+        const movingTowardPopup = markerPixel && mouseY && mouseY < markerPixel.y;
+
+        if (movingTowardPopup) {
+            closeTimeout = setTimeout(() => {
+                if (currentOpenInfoWindow === infoWindow) {
+                    infoWindow.close();
+                    currentOpenInfoWindow = null;
+                }
+            }, 300);
+        } else {
+            if (currentOpenInfoWindow === infoWindow) {
+                infoWindow.close();
+                currentOpenInfoWindow = null;
+            }
+        }
+    });
+
+    infoWindow.addListener('domready', () => {
+        const popup = document.querySelector('.landmark-popup');
+        if (popup) {
+            popup.addEventListener('mouseenter', () => {
+                if (closeTimeout) {
+                    clearTimeout(closeTimeout);
+                    closeTimeout = null;
+                }
+            });
+            popup.addEventListener('mouseleave', () => {
+                closeTimeout = setTimeout(() => {
+                    infoWindow.close();
+                    currentOpenInfoWindow = null;
+                }, 300);
+            });
+        }
+    });
+
+    activeMarkers.set(landmark._id, { marker, infoWindow, landmark });
+}
+
+
+/**
+ * Converts lat/lng to screen coords (helper for mouseout logic)
  */
 function getMarkerScreenPosition(map, latLng) {
     try {
         const overlay = new google.maps.OverlayView();
         overlay.draw = function () { };
         overlay.setMap(map);
-
         const projection = overlay.getProjection();
         if (!projection) return null;
-
-        const point = projection.fromLatLngToContainerPixel(
-            new google.maps.LatLng(latLng.lat, latLng.lng)
-        );
-
+        const point = projection.fromLatLngToContainerPixel(new google.maps.LatLng(latLng.lat, latLng.lng));
         overlay.setMap(null);
         return point ? { x: point.x, y: point.y } : null;
     } catch {
@@ -108,142 +323,23 @@ function getMarkerScreenPosition(map, latLng) {
 }
 
 /**
- * Renders landmarks on the map
- * @param {Array} landmarks - Filtered landmarks to render
- */
-export function renderLandmarks(landmarks) {
-    const map = getMap();
-    if (!map) return;
-
-    // Clear previous markers
-    clearLandmarkMarkers();
-
-    // Create markers for each landmark
-    landmarks.forEach(landmark => {
-        const style = TIER_STYLES[landmark.tier];
-        const pos = { lat: landmark.lat, lng: landmark.lon };
-
-        // Create marker
-        const marker = new google.maps.Marker({
-            position: pos,
-            map: null, // Start hidden, visibility controlled by zoom
-            icon: {
-                path: google.maps.SymbolPath.CIRCLE,
-                scale: style.scale,
-                fillColor: style.fillColor,
-                fillOpacity: 0.9,
-                strokeColor: style.strokeColor,
-                strokeWeight: style.strokeWeight
-            },
-            zIndex: style.zIndex,
-            title: landmark.name
-        });
-
-        // Create info window with landmark details
-        const infoWindow = createLandmarkInfoWindow(landmark);
-
-        // Track marker position for direction detection
-        const markerPos = pos;
-
-        // Add hover events
-        marker.addListener('mouseover', () => {
-            if (closeTimeout) {
-                clearTimeout(closeTimeout);
-                closeTimeout = null;
-            }
-
-            if (currentOpenInfoWindow) {
-                currentOpenInfoWindow.close();
-            }
-            infoWindow.open(map, marker);
-            currentOpenInfoWindow = infoWindow;
-        });
-
-        marker.addListener('mouseout', (e) => {
-            // Check if mouse is moving toward popup (popup is above marker)
-            const mouseY = e.domEvent?.clientY;
-            const markerPixel = getMarkerScreenPosition(map, markerPos);
-
-            // If mouse is moving upward (toward popup), use delay
-            // If moving downward/away, close immediately
-            const movingTowardPopup = markerPixel && mouseY && mouseY < markerPixel.y;
-
-            if (movingTowardPopup) {
-                closeTimeout = setTimeout(() => {
-                    if (currentOpenInfoWindow === infoWindow) {
-                        infoWindow.close();
-                        currentOpenInfoWindow = null;
-                    }
-                }, 300);
-            } else {
-                // Moving away - close immediately
-                if (currentOpenInfoWindow === infoWindow) {
-                    infoWindow.close();
-                    currentOpenInfoWindow = null;
-                }
-            }
-        });
-
-        // Add domready listener to attach events to the popup content
-        infoWindow.addListener('domready', () => {
-            const popup = document.querySelector('.landmark-popup');
-
-            if (popup) {
-                popup.addEventListener('mouseenter', () => {
-                    if (closeTimeout) {
-                        clearTimeout(closeTimeout);
-                        closeTimeout = null;
-                    }
-                });
-
-                popup.addEventListener('mouseleave', () => {
-                    closeTimeout = setTimeout(() => {
-                        infoWindow.close();
-                        currentOpenInfoWindow = null;
-                    }, 300);
-                });
-            }
-        });
-
-        // Store for cleanup and visibility control
-        landmarkMarkers.push({ marker, tier: landmark.tier });
-        landmarkInfoWindows.push(infoWindow);
-    });
-
-    // Setup zoom-based visibility
-    setupZoomVisibility(map);
-
-    // Initial visibility update
-    updateMarkerVisibility(map.getZoom());
-}
-
-/**
- * Creates an info window for a landmark with image and Wikipedia link
- * @param {Object} landmark
- * @returns {google.maps.InfoWindow}
+ * Creates info window content
  */
 function createLandmarkInfoWindow(landmark) {
     const imageHtml = landmark.imageUrl
         ? `<img src="${landmark.imageUrl}" alt="${landmark.name}" class="landmark-popup-image" onerror="this.style.display='none'">`
         : '';
-
-    // Description section
     const descriptionHtml = landmark.description
         ? `<p class="landmark-popup-description">${landmark.description}</p>`
         : '';
 
-    // Link section - Wikipedia if available, otherwise Google search
     let linkHtml;
     if (landmark.wikiUrl && landmark.wikiUrl.trim() !== '') {
-        linkHtml = `<a href="${landmark.wikiUrl}" target="_blank" rel="noopener noreferrer" class="landmark-popup-link">
-            View on Wikipedia →
-        </a>`;
+        linkHtml = `<a href="${landmark.wikiUrl}" target="_blank" rel="noopener noreferrer" class="landmark-popup-link">View on Wikipedia →</a>`;
     } else {
         const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(landmark.name)}`;
         linkHtml = `<span class="landmark-popup-no-wiki">No Wikipedia article available</span>
-        <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="landmark-popup-link landmark-popup-search">
-            Search on Google →
-        </a>`;
+        <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="landmark-popup-link landmark-popup-search">Search on Google →</a>`;
     }
 
     const content = `
@@ -253,9 +349,7 @@ function createLandmarkInfoWindow(landmark) {
                 <h3 class="landmark-popup-title">${landmark.name}</h3>
                 ${descriptionHtml}
                 <div class="landmark-popup-meta">
-                    <span class="landmark-tier tier-${landmark.tier}">
-                        ${getTierLabel(landmark.tier)}
-                    </span>
+                    <span class="landmark-tier tier-${landmark.tier}">${getTierLabel(landmark.tier)}</span>
                 </div>
                 ${linkHtml}
             </div>
@@ -270,12 +364,6 @@ function createLandmarkInfoWindow(landmark) {
     });
 }
 
-
-/**
- * Gets human-readable tier label
- * @param {number} tier
- * @returns {string}
- */
 function getTierLabel(tier) {
     switch (tier) {
         case 1: return 'Global Icon';
@@ -286,48 +374,23 @@ function getTierLabel(tier) {
 }
 
 /**
- * Sets up zoom change listener for tier visibility
- * @param {google.maps.Map} map
- */
-function setupZoomVisibility(map) {
-    map.addListener('zoom_changed', () => {
-        updateMarkerVisibility(map.getZoom());
-    });
-}
-
-/**
- * Updates marker visibility based on current zoom level
- * @param {number} zoom
- */
-function updateMarkerVisibility(zoom) {
-    landmarkMarkers.forEach(({ marker, tier }) => {
-        let visible = false;
-
-        switch (tier) {
-            case 1:
-                visible = zoom >= ZOOM_THRESHOLDS.TIER_1_MIN;
-                break;
-            case 2:
-                visible = zoom >= ZOOM_THRESHOLDS.TIER_2_MIN;
-                break;
-            case 3:
-                visible = zoom >= ZOOM_THRESHOLDS.TIER_3_MIN;
-                break;
-        }
-
-        marker.setMap(visible ? getMap() : null);
-    });
-}
-
-/**
- * Clears all landmark markers from the map
+ * Clears all landmark markers and listeners
  */
 export function clearLandmarkMarkers() {
-    landmarkMarkers.forEach(({ marker }) => marker.setMap(null));
-    landmarkMarkers = [];
+    // Remove Map listeners
+    mapListeners.forEach(l => google.maps.event.removeListener(l));
+    mapListeners = [];
 
-    landmarkInfoWindows.forEach(iw => iw.close());
-    landmarkInfoWindows = [];
+    // Clear visible markers
+    for (const entry of activeMarkers.values()) {
+        entry.marker.setMap(null);
+    }
+    activeMarkers.clear();
 
-    currentOpenInfoWindow = null;
+    if (currentOpenInfoWindow) {
+        currentOpenInfoWindow.close();
+        currentOpenInfoWindow = null;
+    }
+
+    allFilteredLandmarks = [];
 }

@@ -16,4 +16,4 @@ export { animateCamera } from './map/animation.js';
 export { createLabelContent, calculateLabelOffsets } from './map/labels.js';
 
 // Landmarks
-export { filterLandmarksInCorridor, renderLandmarks, clearLandmarkMarkers } from './map/landmarks.js';
+export { filterLandmarksInCorridor, renderLandmarks, clearLandmarkMarkers, setupLegend } from './map/landmarks.js';

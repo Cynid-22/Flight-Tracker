@@ -118,6 +118,7 @@
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
+    line-clamp: 3;
 }
 
 /* No Wikipedia fallback */
@@ -135,4 +136,148 @@
 
 .landmark-popup-search:hover {
     color: #34D399;
+}
+
+/* Landmark Legend */
+.legend-container {
+    position: absolute;
+    bottom: 30px;
+    right: 80px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 10px;
+    color: white;
+    font-family: 'Inter', sans-serif;
+    z-index: 5;
+    min-width: 120px;
+    box-shadow: var(--shadow);
+}
+
+.legend-container.hidden {
+    display: none;
+}
+
+.legend-container h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: white;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    padding-bottom: 8px;
+}
+
+.legend-item {
+    display: flex;
+    /* Grid removed for better vertical centering with Flexbox */
+    align-items: center;
+    gap: 8px;
+    /* Slightly wider gap for clarity */
+    margin-bottom: 10px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.legend-item:last-child {
+    margin-bottom: 0;
+}
+
+/* Hide default checkbox */
+.legend-item input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+/* Custom Checkbox */
+.custom-checkbox {
+    height: 16px;
+    width: 16px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    position: relative;
+    transition: all 0.2s;
+    display: inline-block;
+}
+
+.legend-item:hover .custom-checkbox {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.legend-item input:checked~.custom-checkbox {
+    background-color: #3B82F6;
+    /* Use explicit blue for checked state like in example */
+    border-color: #3B82F6;
+}
+
+/* Checkbox Checkmark */
+.custom-checkbox:after {
+    content: "";
+    position: absolute;
+    display: none;
+    left: 5px;
+    top: 2px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.legend-item input:checked~.custom-checkbox:after {
+    display: block;
+}
+
+/* Legend Dots - ensure perfectly circular */
+.legend-item .dot {
+    /* User request: "make the colors actually circles" */
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: block;
+    /* Margin removed for flex alignment */
+    /* Remove border if it makes it look bad or use transparent border */
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+    /* slight glow/shadow for visibility */
+}
+
+/* Specific colors */
+.legend-item .dot.tier-1 {
+    background-color: #FFD700;
+    box-shadow: 0 0 6px #FFD700;
+}
+
+.legend-item .dot.tier-2 {
+    background-color: #00BFFF;
+    box-shadow: 0 0 6px #00BFFF;
+}
+
+.legend-item .dot.tier-3 {
+    background-color: #FF69B4;
+    box-shadow: 0 0 6px #FF69B4;
+}
+
+/* Label styling - Right aligned as requested ("justified text") */
+.legend-label {
+    text-align: left;
+    color: rgba(255, 255, 255, 0.9);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+    position: relative;
+    /* top: 1px removed - applied specifically below */
+}
+
+/* Micro-adjustment: Nudge National down slightly */
+.legend-item:nth-child(3) .legend-label {
+    top: 1px;
 }

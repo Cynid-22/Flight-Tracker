@@ -1,7 +1,7 @@
 
 import { loadAirports } from './data.js';
 import { loadLandmarks } from './data/landmarks.js';
-import { loadGoogleMapsScript, initMap, drawPath, filterLandmarksInCorridor, renderLandmarks, clearLandmarkMarkers } from './map.js';
+import { loadGoogleMapsScript, initMap, drawPath, filterLandmarksInCorridor, renderLandmarks, clearLandmarkMarkers, setupLegend } from './map.js';
 import { setupAutocomplete, enableSearch, updateFlightInfo, setupLayoverControls, getLayovers, showNotification, findBestMatch, setupDragItems, collapseStops, canAddMoreStops } from './ui.js';
 
 // State
@@ -29,6 +29,9 @@ async function main() {
         landmarks = lm;
         console.log(`Loaded ${landmarks.length} unique landmarks.`);
     });
+
+    // Setup Legend
+    setupLegend();
 
     // 2. Setup UI
     setupAutocomplete(originInput, originSuggestions, airports, (selected) => {
